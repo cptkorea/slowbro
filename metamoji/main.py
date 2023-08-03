@@ -2,17 +2,18 @@ from templates import TEMPLATES
 import sys
 
 HEIGHT = 5
+SPACING = 3
 
 def handle_char(lines, letter, emote):
     rows = TEMPLATES[letter]
 
     for i, r in enumerate(rows):
-        replaced = r.replace('#', f":{emote}:")\
-            .replace(' ', ' ' * 6)
+        replaced = r.replace('#', f':{emote}:')\
+            .replace(' ', f':transparent:')
         lines[i].append(replaced)
 
     for line in lines:
-        line.append(' ' * 5)
+        line.append(' ' * SPACING)
 
 
 def print_emoji(lines):
