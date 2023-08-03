@@ -1,6 +1,6 @@
 # Meta Emoji (Metamoji)
 
-A script to create a template spelling out words using Slack / Discord style emotes
+A script that templates words using Slack / Discord style emotes
 
 ## Usage
 `python main.py HELLO eyes`
@@ -14,3 +14,7 @@ A script to create a template spelling out words using Slack / Discord style emo
 ```
 Rendered in Slack
 ![alt text](resources/hello_example.png)
+
+## Credits
+Inspired by Jasmine Sun who spelled `LOL` using slack emojis
+![alt text](resources/lol.png)
