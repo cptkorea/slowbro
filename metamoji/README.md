@@ -13,8 +13,10 @@ A script that templates words using Slack / Discord style emotes
 :eyes::transparent::transparent::transparent::eyes:   :eyes::eyes::eyes::eyes::eyes:   :eyes::eyes::eyes::eyes:   :eyes::eyes::eyes::eyes:   :eyes::eyes::eyes::eyes::eyes:    
 ```
 Rendered in Slack
-![alt text](resources/hello_example.png)
+
+<img src="resources/hello_example.png" width=500) />
 
 ## Credits
 Inspired by Jasmine Sun who spelled `LOL` using slack emojis
-![alt text](resources/lol.png)
+
+<img src="resources/lol.png" width=500) />
