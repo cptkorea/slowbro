@@ -10,7 +10,7 @@ def handle_char(lines, letter, emote):
 
     for i, r in enumerate(rows):
         replaced = r.replace('#', f':{emote}:')\
-            .replace(' ', f':transparent:')
+            .replace(' ', f':void:')
         lines[i].append(replaced)
 
     for line in lines:
