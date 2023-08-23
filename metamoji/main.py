@@ -1,4 +1,5 @@
 from templates import TEMPLATES
+import argparse
 import sys
 
 HEIGHT = 5
@@ -21,14 +22,22 @@ def print_emoji(lines):
         print("".join(line))
 
 
+def build_parser():
+    parser = argparse.ArgumentParser(
+                prog='Metamoji',
+                description='Generates emoji templates',
+                epilog='Remember to have fun :)')
+    parser.add_argument('word')
+    parser.add_argument('emote')
+    return parser
+
 if __name__ == '__main__':
-    word = sys.argv[1]
-    emote = sys.argv[2]
+    args = build_parser().parse_args()
 
     lines = [[] for _ in range(HEIGHT)]
 
-    for c in word:
-        handle_char(lines, c, emote)
+    for c in args.word:
+        handle_char(lines, c, args.emote)
 
     print_emoji(lines)
 
