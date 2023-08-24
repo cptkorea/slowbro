@@ -6,11 +6,11 @@ A script that templates words using Slack / Discord style emotes
 `python main.py HI eyes`
 
 ```
-:eyes::transparent::transparent::transparent::eyes:   :eyes::eyes::eyes::eyes::eyes:   
-:eyes::transparent::transparent::transparent::eyes:   :transparent::transparent::eyes::transparent::transparent:   
-:eyes::eyes::eyes::eyes::eyes:   :transparent::transparent::eyes::transparent::transparent:   
-:eyes::transparent::transparent::transparent::eyes:   :transparent::transparent::eyes::transparent::transparent:   
-:eyes::transparent::transparent::transparent::eyes:   :eyes::eyes::eyes::eyes::eyes: 
+:eyes::void::void::void::eyes:   :eyes::eyes::eyes::eyes::eyes:   
+:eyes::void::void::void::eyes:   :void::void::eyes::void::void:   
+:eyes::eyes::eyes::eyes::eyes:   :void::void::eyes::void::void:   
+:eyes::void::void::void::eyes:   :void::void::eyes::void::void:   
+:eyes::void::void::void::eyes:   :eyes::eyes::eyes::eyes::eyes: 
 ```
 Rendered in Slack
 
