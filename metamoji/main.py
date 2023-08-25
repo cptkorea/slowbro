@@ -5,11 +5,12 @@ import sys
 HEIGHT = 5
 SPACING = 3
 
-def handle_char(lines, letter, emote):
+def handle_char(lines, letter, emotes):
     rows = TEMPLATES[letter]
+    n = len(emotes)
 
     for i, r in enumerate(rows):
-        replaced = r.replace('#', f':{emote}:')\
+        replaced = r.replace('#', f':{emotes[i%n]}:')\
             .replace(' ', f':void:')
         lines[i].append(replaced)
 
@@ -28,7 +29,7 @@ def build_parser():
                 description='Generates emoji templates',
                 epilog='Remember to have fun :)')
     parser.add_argument('word')
-    parser.add_argument('emote')
+    parser.add_argument('-e', '--emotes', nargs='*', default='eyes')
     return parser
 
 if __name__ == '__main__':
@@ -37,7 +38,7 @@ if __name__ == '__main__':
     lines = [[] for _ in range(HEIGHT)]
 
     for c in args.word:
-        handle_char(lines, c, args.emote)
+        handle_char(lines, c, args.emotes)
 
     print_emoji(lines)
 
