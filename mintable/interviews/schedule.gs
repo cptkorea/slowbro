@@ -1,13 +1,20 @@
 const DURATION_MS = 15 * 60 * 1000;
 
+const PEOPLE = [
+  'taejin@hello.world',
+  'konjac@hello.world',
+  'james@hello.world',
+  'meghan@hello.world',
+  'sreedhar@hello.world',
+  'grace@hello.world',
+];
+
 // Main function to create mixer 1-1 events with a random combination of people
 function main() {
-  let event_start = new Date('August 27, 2023 10:00:00')
-  let event_end = new Date('August 27, 2023 18:00:00')
+  let event_start = new Date('August 27, 2023 10:00:00');
+  let event_end = new Date('August 27, 2023 18:00:00');
 
-  let calId = getCalendarId('1-1s')
-  let calender = CalendarApp.getCalendarById(calId);
-  let events = calendar.getEvents(event_start, event_end);
+  let calId = getCalendarId('1-1s');
 
   for (let st = event_start.getTime(); st < event_end.getTime(); event_start += DURATION_MS) {
     let et = st + DURATION_MS;
