@@ -9,4 +9,4 @@ Tools to [Slack Off](https://bulbapedia.bulbagarden.net/wiki/Slack_Off_(move)) d
 ```
 
 
-<img src="docs/images/slowbro.png" width=300) />
+<img src="docs/images/slowbro.png" width=400) />
