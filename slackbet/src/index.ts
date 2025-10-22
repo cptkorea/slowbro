@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import * as db from "./db";
+import { setupApiRoutes } from "./api";
 
 // --- HTTP receiver: one endpoint for commands + interactivity
 const receiver = new ExpressReceiver({
@@ -11,6 +12,9 @@ const receiver = new ExpressReceiver({
   endpoints: "/slack/events",
 });
 receiver.app.get("/", (_, res) => res.send("ok")); // healthcheck
+
+// Setup API routes
+setupApiRoutes(receiver.app);
 
 const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
 
