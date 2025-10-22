@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 
-const db = new Database("bets.db");
+const dbPath = process.env.DATABASE_PATH || "bets.db";
+const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(user TEXT PRIMARY KEY, points INTEGER NOT NULL);

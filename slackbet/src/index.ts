@@ -1,5 +1,8 @@
 import "dotenv/config";
 import { App, ExpressReceiver } from "@slack/bolt";
+import dotenv from "dotenv";
+dotenv.config();
+
 import * as db from "./db";
 
 // --- HTTP receiver: one endpoint for commands + interactivity
