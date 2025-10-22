@@ -19,13 +19,21 @@ setupApiRoutes(receiver.app);
 const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
 
 // /mk "Will we ship by Nov 15?"
-app.command("/mk", async ({ ack, command, respond }) => {
+app.command("/mk", async ({ ack, command, client }) => {
   await ack();
   const q = (command.text || "").trim().replace(/^"+|"+$/g, "");
-  if (!q) return respond('Usage: `/mk "Will we ship by Nov 15?"`');
+  if (!q) {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: 'Usage: `/mk "Will we ship by Nov 15?"`',
+    });
+    return;
+  }
   db.ensureUser(command.user_id);
   const id = db.createMarket(q, command.user_id);
-  await respond({
+  await client.chat.postMessage({
+    channel: command.channel_id,
     text: `Market ${id}`,
     blocks: [
       { type: "section", text: { type: "mrkdwn", text: `*${q}*` } },
@@ -57,25 +65,53 @@ app.command("/mk", async ({ ack, command, respond }) => {
 });
 
 // /bet mABC yes 50
-app.command("/bet", async ({ ack, command, respond }) => {
+app.command("/bet", async ({ ack, command, client }) => {
   await ack();
   const [id, sideRaw, amtRaw] = (command.text || "").trim().split(/\s+/);
   const side = (sideRaw || "").toLowerCase();
   const amt = parseInt(amtRaw, 10);
-  if (!id || !["yes", "no"].includes(side) || !Number.isFinite(amt) || amt <= 0)
-    return respond("Usage: `/bet <market_id> <yes|no> <points>`");
+
+  if (
+    !id ||
+    !["yes", "no"].includes(side) ||
+    !Number.isFinite(amt) ||
+    amt <= 0
+  ) {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: "Usage: `/bet <market_id> <yes|no> <points>`",
+    });
+    return;
+  }
+
   const m = db.market(id);
-  if (!m || m.status !== "open") return respond("Market not found or closed.");
+  if (!m || m.status !== "open") {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: "Market not found or closed.",
+    });
+    return;
+  }
+
   db.ensureUser(command.user_id);
-  if (db.pts(command.user_id) < amt)
-    return respond(`Insufficient points. Balance: ${db.pts(command.user_id)}`);
+  if (db.pts(command.user_id) < amt) {
+    client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: `Insufficient points. Balance: ${db.pts(command.user_id)}`,
+    });
+    return;
+  }
   db.placeBet(id, command.user_id, side as "yes" | "no", amt);
-  await respond(
-    `Bet placed: *${amt}* on *${side.toUpperCase()}* in *${id}* • YES ${db.sumSide(
+  await client.chat.postMessage({
+    channel: command.channel_id,
+    text: `Bet placed: *${amt}* on *${side.toUpperCase()}* in *${id}* • YES ${db.sumSide(
       id,
       "yes"
-    )} / NO ${db.sumSide(id, "no")} • Your balance ${db.pts(command.user_id)}`
-  );
+    )} / NO ${db.sumSide(id, "no")} • Your balance ${db.pts(command.user_id)}`,
+  });
 });
 
 // quick bet buttons: 10 points
@@ -108,42 +144,91 @@ app.action(/bet_(yes|no)/, async ({ ack, body, action, client }) => {
 });
 
 // /markets
-app.command("/markets", async ({ ack, respond }) => {
+app.command("/markets", async ({ ack, command, client }) => {
   await ack();
   const rows = db.listOpen();
-  if (!rows.length) return respond("No open markets.");
+  if (!rows.length) {
+    await client.chat.postMessage({
+      channel: command.channel_id,
+      text: "No open markets.",
+    });
+    return;
+  }
+
   const lines = rows
     .map((m) => `*${m.id}* — ${m.question} _(open)_`)
     .join("\n");
-  await respond({
+
+  await client.chat.postMessage({
+    channel: command.channel_id,
     text: "Open markets",
     blocks: [{ type: "section", text: { type: "mrkdwn", text: lines } }],
   });
 });
 
 // /resolve mABC yes
-app.command("/resolve", async ({ ack, command, respond }) => {
+app.command("/resolve", async ({ ack, command, client }) => {
   await ack();
   const [id, outRaw] = (command.text || "").trim().split(/\s+/);
   const out = (outRaw || "").toLowerCase();
-  if (!id || !["yes", "no"].includes(out))
-    return respond("Usage: `/resolve <market_id> <yes|no>`");
+  if (!id || !["yes", "no"].includes(out)) {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: "Usage: `/resolve <market_id> <yes|no>`",
+    });
+    return;
+  }
   const m = db.market(id);
-  if (!m) return respond("Market not found.");
-  if (m.status !== "open") return respond(`Market already ${m.status}.`);
+  if (!m) {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: "Market not found.",
+    });
+    return;
+  }
+
+  if (m.status !== "open") {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: `Market already ${m.status}.`,
+    });
+    return;
+  }
+
   const result = db.resolveMarket(id, out as "yes" | "no");
-  if (!result) return respond("Error resolving market.");
-  await respond(
-    `Resolved *${id}* → *${out.toUpperCase()}* • YES ${result.yes} / NO ${result.no} • Total ${result.total}`
-  );
+
+  if (!result) {
+    await client.chat.postEphemeral({
+      channel: command.channel_id,
+      user: command.user_id,
+      text: "Error resolving market.",
+    });
+    return;
+  }
+
+  await client.chat.postMessage({
+    channel: command.channel_id,
+    text: `Resolved *${id}* → *${out.toUpperCase()}* • YES ${result.yes} / NO ${result.no} • Total ${result.total}`,
+  });
 });
 
 // /leaderboard
-app.command("/leaderboard", async ({ ack, respond }) => {
+app.command("/leaderboard", async ({ ack, command, client }) => {
   await ack();
   const rows = db.getLeaderboard();
-  if (!rows.length) return respond("No players yet.");
-  await respond({
+  if (!rows.length) {
+    await client.chat.postMessage({
+      channel: command.channel_id,
+      text: "No players yet.",
+    });
+    return;
+  }
+
+  await client.chat.postMessage({
+    channel: command.channel_id,
     text: "Top balances",
     blocks: [
       {
