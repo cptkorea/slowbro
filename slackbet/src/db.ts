@@ -91,6 +91,33 @@ export function updateUserName(user: string, name: string): void {
   db.prepare("UPDATE users SET name=? WHERE user=?").run(name, user);
 }
 
+export async function ensureUserWithSlackInfo(
+  userId: string,
+  slackClient: any
+): Promise<void> {
+  // First ensure user exists
+  if (!db.prepare("SELECT 1 FROM users WHERE user=?").get(userId)) {
+    db.prepare("INSERT INTO users VALUES(?,?,?)").run(userId, null, START);
+  }
+
+  // Try to fetch and update name from Slack if not already set
+  const existing = db
+    .prepare("SELECT name FROM users WHERE user=?")
+    .get(userId) as { name: string | null } | undefined;
+  if (!existing?.name) {
+    try {
+      const slackUser = await slackClient.users.info({ user: userId });
+      const name = slackUser.user.real_name || slackUser.user.name || null;
+      if (name) {
+        db.prepare("UPDATE users SET name=? WHERE user=?").run(name, userId);
+      }
+    } catch (error) {
+      // Silently fail - name will remain null
+      console.error(`Failed to fetch Slack info for user ${userId}:`, error);
+    }
+  }
+}
+
 export function createMarket(question: string, userId: string) {
   const id = uid("m");
   db.prepare("INSERT INTO markets VALUES (?,?,?,?,?)").run(

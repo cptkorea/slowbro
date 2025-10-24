@@ -25,7 +25,7 @@ app.command("/mk", async ({ ack, command, client, respond }) => {
   if (!q) {
     return respond('Usage: `/mk "Will we ship by Nov 15?"`');
   }
-  db.ensureUser(command.user_id);
+  await db.ensureUserWithSlackInfo(command.user_id, client);
   const id = db.createMarket(q, command.user_id);
   await client.chat.postMessage({
     channel: command.channel_id,
@@ -69,7 +69,7 @@ app.command("/bet", async ({ ack, command, client, respond }) => {
     return respond("Usage: `/bet <market_id> <yes|no> <points>`");
   const m = db.market(id);
   if (!m || m.status !== "open") return respond("Market not found or closed.");
-  db.ensureUser(command.user_id);
+  await db.ensureUserWithSlackInfo(command.user_id, client);
   if (db.pts(command.user_id) < amt)
     return respond(`Insufficient points. Balance: ${db.pts(command.user_id)}`);
   db.placeBet(id, command.user_id, side as "yes" | "no", amt);
@@ -161,7 +161,7 @@ app.view(/bet_modal_/, async ({ ack, body, view, client }) => {
     return;
   }
 
-  db.ensureUser(userId);
+  await db.ensureUserWithSlackInfo(userId, client);
   const balance = db.pts(userId);
 
   if (balance < stake) {
