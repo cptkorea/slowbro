@@ -4,19 +4,30 @@ const dbPath = process.env.DATABASE_PATH || "bets.db";
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.exec(`
-CREATE TABLE IF NOT EXISTS users(user TEXT PRIMARY KEY, points INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS users(user TEXT PRIMARY KEY, name TEXT, points INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS markets(id TEXT PRIMARY KEY, question TEXT NOT NULL, status TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS bets(id TEXT PRIMARY KEY, market_id TEXT NOT NULL, user TEXT NOT NULL, side TEXT CHECK(side IN ('yes','no')) NOT NULL, amount INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_bets_market ON bets(market_id);
 `);
 
+// Migration: Add name column if it doesn't exist
+try {
+  db.prepare("SELECT name FROM users LIMIT 1").get();
+} catch (error) {
+  // Column doesn't exist, add it
+  db.exec("ALTER TABLE users ADD COLUMN name TEXT;");
+}
+
 const START = parseInt(process.env.STARTING_POINTS || "1000", 10);
 const uid = (p = "m") => p + Math.random().toString(16).slice(2, 8);
 const now = () => Date.now();
 
-export function ensureUser(u: string): void {
+export function ensureUser(u: string, name?: string): void {
   if (!db.prepare("SELECT 1 FROM users WHERE user=?").get(u)) {
-    db.prepare("INSERT INTO users VALUES(?,?)").run(u, START);
+    db.prepare("INSERT INTO users VALUES(?,?,?)").run(u, name || null, START);
+  } else if (name) {
+    // Update name if provided and user exists
+    db.prepare("UPDATE users SET name=? WHERE user=?").run(name, u);
   }
 }
 
@@ -63,6 +74,22 @@ export const listOpen = () =>
     created_by: string;
     created_at: number;
   }>;
+
+export function getLeaderboardWithNames() {
+  return db
+    .prepare(
+      "SELECT user, name, points FROM users ORDER BY points DESC LIMIT 10"
+    )
+    .all() as Array<{
+    user: string;
+    name: string | null;
+    points: number;
+  }>;
+}
+
+export function updateUserName(user: string, name: string): void {
+  db.prepare("UPDATE users SET name=? WHERE user=?").run(name, user);
+}
 
 export function createMarket(question: string, userId: string) {
   const id = uid("m");

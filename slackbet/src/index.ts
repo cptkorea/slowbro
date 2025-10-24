@@ -13,10 +13,10 @@ const receiver = new ExpressReceiver({
 });
 receiver.app.get("/", (_, res) => res.send("ok")); // healthcheck
 
-// Setup API routes
-setupApiRoutes(receiver.app);
-
 const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
+
+// Setup API routes with Slack client
+setupApiRoutes(receiver.app, app.client);
 
 // /mk "Will we ship by Nov 15?"
 app.command("/mk", async ({ ack, command, client, respond }) => {
@@ -82,32 +82,116 @@ app.command("/bet", async ({ ack, command, client, respond }) => {
   });
 });
 
-// quick bet buttons: 10 points
+// quick bet buttons: open modal for stake input
 app.action(/bet_(yes|no)/, async ({ ack, body, action, client }) => {
   await ack();
   const buttonAction = action as any;
   const side = buttonAction.action_id.endsWith("yes") ? "yes" : "no";
   const id = buttonAction.value;
-  const m = db.market(id);
-  if (!m || m.status !== "open") return;
-  const user = body.user.id;
-  db.ensureUser(user);
-  if (db.pts(user) < 10) {
+
+  // Open a modal to ask for stake amount
+  await client.views.open({
+    trigger_id: (body as any).trigger_id,
+    view: {
+      type: "modal",
+      callback_id: `bet_modal_${side}_${id}`,
+      title: {
+        type: "plain_text",
+        text: `Bet ${side.toUpperCase()}`,
+      },
+      submit: {
+        type: "plain_text",
+        text: "Place Bet",
+      },
+      close: {
+        type: "plain_text",
+        text: "Cancel",
+      },
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Market:* ${id}\n*Your balance:* ${db.pts((body as any).user.id)} points`,
+          },
+        },
+        {
+          type: "input",
+          block_id: "stake_block",
+          label: {
+            type: "plain_text",
+            text: "Stake (points)",
+          },
+          element: {
+            type: "number_input",
+            action_id: "stake_input",
+            is_decimal_allowed: false,
+            min_value: "1",
+          },
+        },
+      ],
+    },
+  });
+});
+
+// Handle modal submission for custom stakes
+app.view(/bet_modal_/, async ({ ack, body, view, client }) => {
+  await ack();
+
+  const userId = (body as any).user.id;
+  const stakeStr = view.state.values.stake_block.stake_input.value;
+  const stake = parseInt(stakeStr || "0", 10);
+
+  // Extract side and market ID from callback_id
+  const callbackId = view.callback_id;
+  const match = callbackId.match(/bet_modal_(yes|no)_(.+)/);
+  if (!match || !match[2]) return;
+
+  const side = match[1] as "yes" | "no";
+  const marketId = match[2];
+
+  // Validate
+  const m = db.market(marketId);
+  if (!m || m.status !== "open") {
     await client.chat.postEphemeral({
-      channel: (body as any).container.channel_id,
-      user,
-      text: "Need 10 points.",
+      channel: userId,
+      user: userId,
+      text: "Market not found or closed.",
     });
     return;
   }
-  db.placeBet(id, user, side, 10);
+
+  db.ensureUser(userId);
+  const balance = db.pts(userId);
+
+  if (balance < stake) {
+    await client.chat.postEphemeral({
+      channel: userId,
+      user: userId,
+      text: `Insufficient points. You have ${balance}, but need ${stake}.`,
+    });
+    return;
+  }
+
+  if (stake <= 0) {
+    await client.chat.postEphemeral({
+      channel: userId,
+      user: userId,
+      text: "Stake must be greater than 0.",
+    });
+    return;
+  }
+
+  // Place the bet
+  db.placeBet(marketId, userId, side, stake);
+
   await client.chat.postEphemeral({
-    channel: (body as any).container.channel_id,
-    user,
-    text: `Quick bet: 10 on ${side.toUpperCase()} • YES ${db.sumSide(
-      id,
+    channel: userId,
+    user: userId,
+    text: `Bet placed: *${stake}* on *${side.toUpperCase()}* in *${marketId}* • YES ${db.sumSide(
+      marketId,
       "yes"
-    )} / NO ${db.sumSide(id, "no")} • Balance ${db.pts(user)}`,
+    )} / NO ${db.sumSide(marketId, "no")} • Your balance: ${db.pts(userId)}`,
   });
 });
 

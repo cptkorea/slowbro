@@ -1,7 +1,7 @@
 import { Application } from "express";
 import * as db from "./db";
 
-export function setupApiRoutes(app: Application) {
+export function setupApiRoutes(app: Application, slackClient: any) {
   // Health check with database connectivity test
   app.get("/api/health", (_, res) => {
     try {
@@ -23,10 +23,45 @@ export function setupApiRoutes(app: Application) {
   });
 
   // Get the leaderboard (top 10 users by points)
-  app.get("/api/users", (_, res) => {
+  app.get("/api/users", async (_, res) => {
     try {
-      const users = db.getLeaderboard();
-      res.json(users);
+      const users = db.getLeaderboardWithNames();
+
+      // If names are missing in DB, try to fetch from Slack
+      const usersWithNames = await Promise.all(
+        users.map(async (user) => {
+          if (user.name) {
+            // Already have name from DB
+            return {
+              userId: user.user,
+              name: user.name,
+              points: user.points,
+            };
+          }
+
+          // Try to fetch from Slack if not in DB
+          try {
+            const slackUser = await slackClient.users.info({ user: user.user });
+            const name =
+              slackUser.user.real_name || slackUser.user.name || "Unknown";
+            // Update DB with the name for future use
+            db.updateUserName(user.user, name);
+            return {
+              userId: user.user,
+              name: name,
+              points: user.points,
+            };
+          } catch (error) {
+            return {
+              userId: user.user,
+              name: "Unknown",
+              points: user.points,
+            };
+          }
+        })
+      );
+
+      res.json(usersWithNames);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
     }
