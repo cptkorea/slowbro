@@ -1,7 +1,8 @@
 import { Application } from "express";
+import { WebClient } from "@slack/web-api";
 import * as db from "./db";
 
-export function setupApiRoutes(app: Application, slackClient: any) {
+export function setupApiRoutes(app: Application, slackClient: WebClient) {
   // Health check with database connectivity test
   app.get("/api/health", (_, res) => {
     try {
@@ -39,11 +40,13 @@ export function setupApiRoutes(app: Application, slackClient: any) {
             };
           }
 
+          console.log("Fetching user from Slack", user.user);
+
           // Try to fetch from Slack if not in DB
           try {
             const slackUser = await slackClient.users.info({ user: user.user });
             const name =
-              slackUser.user.real_name || slackUser.user.name || "Unknown";
+              slackUser.user?.real_name || slackUser.user?.name || "Unknown";
             // Update DB with the name for future use
             db.updateUserName(user.user, name);
             return {
