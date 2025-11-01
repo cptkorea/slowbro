@@ -18,6 +18,43 @@ const app = new App({ token: process.env.SLACK_BOT_TOKEN, receiver });
 // Setup API routes with Slack client
 setupApiRoutes(receiver.app, app.client);
 
+// Listen for users joining channels to pre-populate them in the database
+app.event("member_joined_channel", async ({ event, client }) => {
+  try {
+    await db.ensureUserWithSlackInfo(event.user, client);
+    console.log(`User ${event.user} joined channel, added to database`);
+  } catch (error) {
+    console.error(`Failed to add user ${event.user} to database:`, error);
+  }
+});
+
+// Listen for app_mention or when bot is added to a channel to sync all members
+app.event("app_mention", async ({ event, client }) => {
+  try {
+    // Sync all channel members when the bot is mentioned
+    const result = await client.conversations.members({
+      channel: event.channel,
+    });
+
+    if (result.members) {
+      await Promise.all(
+        result.members.map(async (userId) => {
+          try {
+            await db.ensureUserWithSlackInfo(userId, client);
+          } catch (error) {
+            console.error(`Failed to sync user ${userId}:`, error);
+          }
+        })
+      );
+      console.log(
+        `Synced ${result.members.length} members from channel ${event.channel}`
+      );
+    }
+  } catch (error) {
+    console.error("Failed to sync channel members:", error);
+  }
+});
+
 // /mk "Will we ship by Nov 15?"
 app.command("/mk", async ({ ack, command, client, respond }) => {
   await ack();
@@ -25,7 +62,7 @@ app.command("/mk", async ({ ack, command, client, respond }) => {
   if (!q) {
     return respond('Usage: `/mk "Will we ship by Nov 15?"`');
   }
-  await db.ensureUserWithSlackInfo(command.user_id, client);
+
   const id = db.createMarket(q, command.user_id);
   await client.chat.postMessage({
     channel: command.channel_id,
@@ -69,7 +106,7 @@ app.command("/bet", async ({ ack, command, client, respond }) => {
     return respond("Usage: `/bet <market_id> <yes|no> <points>`");
   const m = db.market(id);
   if (!m || m.status !== "open") return respond("Market not found or closed.");
-  await db.ensureUserWithSlackInfo(command.user_id, client);
+
   if (db.pts(command.user_id) < amt)
     return respond(`Insufficient points. Balance: ${db.pts(command.user_id)}`);
   db.placeBet(id, command.user_id, side as "yes" | "no", amt);
@@ -161,7 +198,6 @@ app.view(/bet_modal_/, async ({ ack, body, view, client }) => {
     return;
   }
 
-  await db.ensureUserWithSlackInfo(userId, client);
   const balance = db.pts(userId);
 
   if (balance < stake) {
