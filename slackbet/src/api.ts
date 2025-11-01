@@ -71,6 +71,18 @@ export function setupApiRoutes(app: Application, slackClient: App["client"]) {
     }
   });
 
+  app.patch("/api/users", async (req, res) => {
+    const { userId } = req.body;
+    const user = await slackClient.users.info({ user: userId });
+
+    db.updateUserName(
+      userId,
+      user.user?.real_name || user.user?.name || "Unknown"
+    );
+
+    res.json({ success: true });
+  });
+
   // Get all open markets
   app.get("/api/markets", (_, res) => {
     try {
