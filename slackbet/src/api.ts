@@ -1,8 +1,8 @@
 import { Application } from "express";
-import { WebClient } from "@slack/web-api";
+import type { App } from "@slack/bolt";
 import * as db from "./db";
 
-export function setupApiRoutes(app: Application, slackClient: WebClient) {
+export function setupApiRoutes(app: Application, slackClient: App["client"]) {
   // Health check with database connectivity test
   app.get("/api/health", (_, res) => {
     try {
@@ -55,6 +55,7 @@ export function setupApiRoutes(app: Application, slackClient: WebClient) {
               points: user.points,
             };
           } catch (error) {
+            console.error("Failed to fetch user from Slack", error);
             return {
               userId: user.user,
               name: "Unknown",
