@@ -182,9 +182,10 @@ export function resolveMarket(id: string, out: "yes" | "no") {
 
 export function getLeaderboard() {
   return db
-    .prepare("SELECT user, points FROM users ORDER BY points DESC LIMIT 10")
+    .prepare("SELECT user, name, points FROM users ORDER BY points DESC")
     .all() as Array<{
     user: string;
+    name: string | null;
     points: number;
   }>;
 }

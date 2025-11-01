@@ -269,18 +269,44 @@ app.command("/leaderboard", async ({ ack, command, client, respond }) => {
   await ack();
   const rows = db.getLeaderboard();
   if (!rows.length) return respond("No players yet.");
+
+  // Format leaderboard entries with medals for top 3
+  const leaderboardText = rows
+    .map((r, i) => {
+      const rank = i + 1;
+      const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}.`;
+      const name = r.name || `<@${r.user}>`;
+      return `${medal} ${name} — *${r.points}* points`;
+    })
+    .join("\n");
+
   await client.chat.postMessage({
     channel: command.channel_id,
-    text: "Top balances",
+    text: "Leaderboard",
     blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: "🏆 Leaderboard",
+          emoji: true,
+        },
+      },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: rows
-            .map((r, i) => `${i + 1}. <@${r.user}> — *${r.points}*`)
-            .join("\n"),
+          text: leaderboardText,
         },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Total players: ${rows.length}`,
+          },
+        ],
       },
     ],
   });
