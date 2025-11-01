@@ -189,3 +189,28 @@ export function getLeaderboard() {
     points: number;
   }>;
 }
+
+export function getUserBets(userId: string) {
+  return db
+    .prepare(
+      `SELECT
+        b.market_id,
+        b.side,
+        b.amount,
+        b.created_at,
+        m.question,
+        m.status
+      FROM bets b
+      JOIN markets m ON b.market_id = m.id
+      WHERE b.user = ?
+      ORDER BY b.created_at DESC`
+    )
+    .all(userId) as Array<{
+    market_id: string;
+    side: string;
+    amount: number;
+    created_at: number;
+    question: string;
+    status: string;
+  }>;
+}

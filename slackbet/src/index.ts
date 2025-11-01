@@ -264,6 +264,76 @@ app.command("/resolve", async ({ ack, command, client, respond }) => {
   });
 });
 
+// /mybets - Show all markets where user has active bets
+app.command("/recall", async ({ ack, command, client, respond }) => {
+  await ack();
+  const bets = db.getUserBets(command.user_id);
+
+  if (!bets.length) {
+    return respond("You haven't placed any bets yet.");
+  }
+
+  // Group bets by market
+  const marketBets = new Map<
+    string,
+    {
+      question: string;
+      status: string;
+      bets: Array<{ side: string; amount: number }>;
+    }
+  >();
+
+  for (const bet of bets) {
+    if (!marketBets.has(bet.market_id)) {
+      marketBets.set(bet.market_id, {
+        question: bet.question,
+        status: bet.status,
+        bets: [],
+      });
+    }
+    marketBets.get(bet.market_id)!.bets.push({
+      side: bet.side,
+      amount: bet.amount,
+    });
+  }
+
+  // Build message text
+  let messageText = "📊 *Your Bets*\n\n";
+
+  for (const [marketId, data] of marketBets) {
+    const yesTotal = db.sumSide(marketId, "yes");
+    const noTotal = db.sumSide(marketId, "no");
+    const totalStaked = data.bets.reduce((sum, b) => sum + b.amount, 0);
+
+    const statusEmoji =
+      data.status === "open"
+        ? "🟢"
+        : data.status.startsWith("resolved")
+          ? "🔒"
+          : "⚫";
+    const statusText =
+      data.status === "open"
+        ? "Open"
+        : data.status.replace("resolved_", "Resolved: ").toUpperCase();
+
+    const betsList = data.bets
+      .map((b) => `• ${b.side.toUpperCase()}: ${b.amount} points`)
+      .join("\n");
+
+    messageText += `*${data.question}*\n`;
+    messageText += `${betsList}\n\n`;
+    messageText += `*Market:* YES ${yesTotal} / NO ${noTotal}\n`;
+    messageText += `*Status:* ${statusEmoji} ${statusText}\n`;
+    messageText += `_Market ID: ${marketId} • Your stake: ${totalStaked} points_\n`;
+    messageText += `\n---\n\n`;
+  }
+
+  await client.chat.postMessage({
+    channel: command.channel_id,
+    text: messageText,
+  });
+});
+
 // /leaderboard
 app.command("/leaderboard", async ({ ack, command, client, respond }) => {
   await ack();
@@ -274,7 +344,8 @@ app.command("/leaderboard", async ({ ack, command, client, respond }) => {
   const leaderboardText = rows
     .map((r, i) => {
       const rank = i + 1;
-      const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}.`;
+      const medal =
+        rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}.`;
       const name = r.name || `<@${r.user}>`;
       return `${medal} ${name} — *${r.points}* points`;
     })
