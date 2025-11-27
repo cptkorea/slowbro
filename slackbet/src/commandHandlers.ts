@@ -38,20 +38,15 @@ export function handleCreateMarket(
 
 export function handlePlaceBet(
   marketId: string,
-  side: string,
+  outcomeName: string,
   amount: number,
   userId: string
 ): PlaceBetResult {
   // Validate inputs
-  if (
-    !marketId ||
-    !["yes", "no"].includes(side.toLowerCase()) ||
-    !Number.isFinite(amount) ||
-    amount <= 0
-  ) {
+  if (!marketId || !outcomeName || !Number.isFinite(amount) || amount <= 0) {
     return {
       success: false,
-      error: "Usage: `/bet <market_id> <yes|no> <points>`",
+      error: "Usage: `/bet <market_id> <outcome_name> <points>`",
     };
   }
 
@@ -64,7 +59,19 @@ export function handlePlaceBet(
     };
   }
 
+  // Find the outcome
+  const outcome = db.getOutcomeByName(marketId, outcomeName);
+  if (!outcome) {
+    const availableOutcomes = db.getMarketOutcomes(marketId);
+    const outcomesList = availableOutcomes.map(o => o.name).join(", ");
+    return {
+      success: false,
+      error: `Outcome "${outcomeName}" not found. Available outcomes: ${outcomesList}`,
+    };
+  }
+
   // Check user has enough points
+  db.ensureUser(userId);
   const userPoints = db.pts(userId);
   if (userPoints < amount) {
     return {
@@ -73,21 +80,31 @@ export function handlePlaceBet(
     };
   }
 
-  // Place the bet
-  db.placeBet(marketId, userId, side.toLowerCase() as "yes" | "no", amount);
+  // Calculate odds before placing bet
+  const odds = db.calculateOdds(marketId, outcome.id, amount);
 
-  const yesTotal = db.sumSide(marketId, "yes");
-  const noTotal = db.sumSide(marketId, "no");
+  // Place the bet
+  db.placeBet(marketId, userId, outcome.id, amount);
+
+  // Get updated outcomes
+  const outcomes = db.getMarketOutcomes(marketId);
+  const poolSummary = outcomes.map(o => `${o.name}: ${o.total_bet}`).join(" / ");
   const newBalance = db.pts(userId);
 
   return {
     success: true,
-    message: `Bet placed: *${amount}* on *${side.toUpperCase()}* in *${marketId}* • YES ${yesTotal} / NO ${noTotal} • Your balance ${newBalance}`,
+    message: 
+      `✅ Bet placed: *${amount} points* on *${outcome.name}* in market *${marketId}*\n` +
+      `Expected payout: *${odds?.potentialPayout || 0} points* (${odds?.profit || 0} profit)\n` +
+      `Pool: ${poolSummary}\n` +
+      `Your balance: *${newBalance} points*`,
   };
 }
 
 export function handleListMarkets(): {
   success: boolean;
+  message?: string;
+  blocks?: any[];
   markets?: Array<{ id: string; question: string; status: string }>;
   error?: string;
 } {
@@ -100,23 +117,69 @@ export function handleListMarkets(): {
     };
   }
 
+  const blocks: any[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "📈 Open Markets",
+      },
+    },
+  ];
+
+  let messageText = "📈 *Open Markets*\n\n";
+
+  for (const market of markets) {
+    const outcomes = db.getMarketOutcomes(market.id);
+    const oddsDisplay = db.getMarketOddsDisplay(market.id, 100);
+    const totalPool = outcomes.reduce((sum, o) => sum + o.total_bet, 0);
+
+    const oddsLines = oddsDisplay
+      .map((odds) => `  • ${odds.outcomeName}: 100→${odds.potentialPayout} (${odds.profit} profit)`)
+      .join("\n");
+
+    messageText += `*${market.question}*\n`;
+    messageText += `Market: *${market.id}* | Pool: ${totalPool} points\n`;
+    messageText += `${oddsLines}\n\n`;
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${market.question}*\n_Market ${market.id} • Total pool: ${totalPool} points_`,
+      },
+    });
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Current odds (100 pt bet):*\n${oddsLines}`,
+      },
+    });
+
+    blocks.push({
+      type: "divider",
+    });
+  }
+
   return {
     success: true,
+    message: messageText,
+    blocks,
     markets,
   };
 }
 
 export function handleResolveMarket(
   marketId: string,
-  outcome: string
+  outcomeName: string
 ): ResolveMarketResult {
-  const outcomeLower = outcome.toLowerCase();
-
   // Validate inputs
-  if (!marketId || !["yes", "no"].includes(outcomeLower)) {
+  if (!marketId || !outcomeName) {
     return {
       success: false,
-      error: "Usage: `/resolve <market_id> <yes|no>`",
+      error: "Usage: `/resolve <market_id> <outcome_name>`",
     };
   }
 
@@ -137,8 +200,19 @@ export function handleResolveMarket(
     };
   }
 
+  // Find the outcome
+  const outcome = db.getOutcomeByName(marketId, outcomeName);
+  if (!outcome) {
+    const availableOutcomes = db.getMarketOutcomes(marketId);
+    const outcomesList = availableOutcomes.map(o => o.name).join(", ");
+    return {
+      success: false,
+      error: `Outcome "${outcomeName}" not found. Available outcomes: ${outcomesList}`,
+    };
+  }
+
   // Resolve the market
-  const result = db.resolveMarket(marketId, outcomeLower as "yes" | "no");
+  const result = db.resolveMarket(marketId, outcome.id);
   if (!result) {
     return {
       success: false,
@@ -146,9 +220,19 @@ export function handleResolveMarket(
     };
   }
 
+  const outcomePoolSummary = result.outcomes
+    .map(o => `${o.name}: ${o.total}`)
+    .join(" / ");
+
   return {
     success: true,
-    message: `Resolved *${marketId}* → *${outcomeLower.toUpperCase()}* • YES ${result.yes} / NO ${result.no} • Total ${result.total}`,
+    message: 
+      `✅ *Market Resolved*\n\n` +
+      `Market: *${marketId}*\n` +
+      `Question: *${market.question}*\n` +
+      `Winner: *${result.winner}*\n\n` +
+      `Final Pool Distribution:\n${outcomePoolSummary}\n` +
+      `Total Pool: *${result.total} points*`,
   };
 }
 
@@ -159,7 +243,7 @@ export function handleGetUserBets(userId: string): {
     {
       question: string;
       status: string;
-      bets: Array<{ side: string; amount: number }>;
+      bets: Array<{ side?: string; outcome?: string; amount: number }>;
     }
   >;
   error?: string;
@@ -179,7 +263,7 @@ export function handleGetUserBets(userId: string): {
     {
       question: string;
       status: string;
-      bets: Array<{ side: string; amount: number }>;
+      bets: Array<{ side?: string; outcome?: string; amount: number }>;
     }
   >();
 
@@ -192,7 +276,7 @@ export function handleGetUserBets(userId: string): {
       });
     }
     marketBets.get(bet.market_id)!.bets.push({
-      side: bet.side,
+      outcome: bet.outcome_name,
       amount: bet.amount,
     });
   }
@@ -209,15 +293,15 @@ export function formatUserBetsMessage(
     {
       question: string;
       status: string;
-      bets: Array<{ side: string; amount: number }>;
+      bets: Array<{ side?: string; outcome?: string; amount: number }>;
     }
   >
 ): string {
   let messageText = "📊 *Your Bets*\n\n";
 
   for (const [marketId, data] of marketBets) {
-    const yesTotal = db.sumSide(marketId, "yes");
-    const noTotal = db.sumSide(marketId, "no");
+    const outcomes = db.getMarketOutcomes(marketId);
+    const totalPool = outcomes.reduce((sum, o) => sum + o.total_bet, 0);
     const totalStaked = data.bets.reduce((sum, b) => sum + b.amount, 0);
 
     const statusEmoji =
@@ -226,24 +310,126 @@ export function formatUserBetsMessage(
         : data.status.startsWith("resolved")
           ? "🔒"
           : "⚫";
-    const statusText =
-      data.status === "open"
-        ? "Open"
-        : data.status.replace("resolved_", "Resolved: ").toUpperCase();
+    
+    let statusText = "Unknown";
+    if (data.status === "open") {
+      statusText = "Open";
+    } else if (data.status.startsWith("resolved_")) {
+      const resolvedOutcomeId = data.status.replace("resolved_", "");
+      const resolvedOutcome = db.getOutcomeById(resolvedOutcomeId);
+      statusText = `Resolved: ${resolvedOutcome?.name || "Unknown"}`;
+    }
 
     const betsList = data.bets
-      .map((b) => `• ${b.side.toUpperCase()}: ${b.amount} points`)
+      .map((b) => {
+        const outcomeName = b.outcome || b.side?.toUpperCase() || "Unknown";
+        return `• ${outcomeName}: ${b.amount} points`;
+      })
       .join("\n");
+
+    const poolSummary = outcomes.map(o => `${o.name}: ${o.total_bet}`).join(" / ");
 
     messageText += `*${data.question}*\n`;
     messageText += `${betsList}\n\n`;
-    messageText += `*Market:* YES ${yesTotal} / NO ${noTotal}\n`;
+    messageText += `*Pool:* ${poolSummary}\n`;
     messageText += `*Status:* ${statusEmoji} ${statusText}\n`;
-    messageText += `_Market ID: ${marketId} • Your stake: ${totalStaked} points_\n`;
+    messageText += `_Market ID: ${marketId} • Your stake: ${totalStaked} points • Total pool: ${totalPool}_\n`;
     messageText += `\n---\n\n`;
   }
 
   return messageText;
+}
+
+export function handleGetOdds(
+  marketId: string,
+  betAmount: number = 100
+): {
+  success: boolean;
+  message?: string;
+  blocks?: any[];
+  error?: string;
+} {
+  const market = db.market(marketId);
+  if (!market) {
+    return {
+      success: false,
+      error: "Market not found.",
+    };
+  }
+
+  const outcomes = db.getMarketOutcomes(marketId);
+  if (outcomes.length === 0) {
+    return {
+      success: false,
+      error: "No outcomes found for this market.",
+    };
+  }
+
+  const totalPool = outcomes.reduce((sum, o) => sum + o.total_bet, 0);
+  const oddsDisplay = db.getMarketOddsDisplay(marketId, betAmount);
+
+  const outcomeLines = oddsDisplay.map(odds => {
+    const poolPct = totalPool > 0 ? Math.round((odds.outcomePool / totalPool) * 100) : 0;
+    return `• *${odds.outcomeName}*: ${betAmount}→${odds.potentialPayout} (${odds.profit} profit) | Pool: ${odds.outcomePool} (${poolPct}%)`;
+  }).join("\n");
+
+  const message = 
+    `📊 *Market Odds: ${market.question}*\n\n` +
+    `Market ID: *${marketId}*\n` +
+    `Status: *${market.status}*\n` +
+    `Total Pool: *${totalPool} points*\n\n` +
+    `*Odds for ${betAmount} point bet:*\n${outcomeLines}`;
+
+  const blocks = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "📊 Market Odds",
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${market.question}*`,
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Market ID:*\n${marketId}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Status:*\n${market.status}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Total Pool:*\n${totalPool} points`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Bet Amount:*\n${betAmount} points`,
+        },
+      ],
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Current Odds:*\n${outcomeLines}`,
+      },
+    },
+  ];
+
+  return {
+    success: true,
+    message,
+    blocks,
+  };
 }
 
 export function handleGetLeaderboard(): {

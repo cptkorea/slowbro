@@ -39,22 +39,33 @@ export function registerViews(app: App) {
     }
   });
 
-  // Quick bet buttons: open modal for stake input
-  app.action(/bet_(yes|no)/, async ({ ack, body, action, client }) => {
+  // Quick bet buttons: open modal for stake input (outcome-based)
+  app.action(/bet_outcome_/, async ({ ack, body, action, client }) => {
     await ack();
     const buttonAction = action as { action_id: string; value: string };
-    const side = buttonAction.action_id.endsWith("yes") ? "yes" : "no";
-    const id = buttonAction.value;
+    const outcomeId = buttonAction.value;
+    
+    const outcome = db.getOutcomeById(outcomeId);
+    if (!outcome) return;
+
+    const userId = (body as { user: { id: string } }).user.id;
+    const userBalance = db.pts(userId);
+    
+    // Calculate odds for a 100-point bet
+    const odds = db.calculateOdds(outcome.market_id, outcomeId, 100);
+    const oddsText = odds 
+      ? `\n*Current odds:* Bet 100 → Get ${odds.potentialPayout} (${odds.profit} profit)`
+      : "";
 
     // Open a modal to ask for stake amount
     await client.views.open({
       trigger_id: (body as { trigger_id: string }).trigger_id,
       view: {
         type: "modal",
-        callback_id: `bet_modal_${side}_${id}`,
+        callback_id: `bet_outcome_modal_${outcomeId}`,
         title: {
           type: "plain_text",
-          text: `Bet ${side.toUpperCase()}`,
+          text: `Bet ${outcome.name}`,
         },
         submit: {
           type: "plain_text",
@@ -69,7 +80,7 @@ export function registerViews(app: App) {
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `*Market:* ${id}\n*Your balance:* ${db.pts((body as { user: { id: string } }).user.id)} points`,
+              text: `*Market:* ${outcome.market_id}\n*Outcome:* ${outcome.name}\n*Your balance:* ${userBalance} points${oddsText}`,
             },
           },
           {
@@ -91,21 +102,24 @@ export function registerViews(app: App) {
     });
   });
 
-  // Handle modal submission for custom stakes
-  app.view(/bet_modal_/, async ({ ack, body, view, client }) => {
+  // Handle modal submission for outcome-based bets
+  app.view(/bet_outcome_modal_/, async ({ ack, body, view, client }) => {
     await ack();
 
     const userId = (body as { user: { id: string } }).user.id;
     const stakeStr = view.state.values.stake_block.stake_input.value;
     const stake = parseInt(stakeStr || "0", 10);
 
-    // Extract side and market ID from callback_id
+    // Extract outcome ID from callback_id
     const callbackId = view.callback_id;
-    const match = callbackId.match(/bet_modal_(yes|no)_(.+)/);
-    if (!match || !match[2]) return;
+    const match = callbackId.match(/bet_outcome_modal_(.+)/);
+    if (!match || !match[1]) return;
 
-    const side = match[1] as "yes" | "no";
-    const marketId = match[2];
+    const outcomeId = match[1];
+    const outcome = db.getOutcomeById(outcomeId);
+    if (!outcome) return;
+
+    const marketId = outcome.market_id;
 
     // Validate
     const m = db.market(marketId);
@@ -138,16 +152,113 @@ export function registerViews(app: App) {
       return;
     }
 
+    // Calculate odds before placing bet
+    const odds = db.calculateOdds(marketId, outcomeId, stake);
+
     // Place the bet
-    db.placeBet(marketId, userId, side, stake);
+    db.placeBet(marketId, userId, outcomeId, stake);
+
+    // Get updated pools
+    const outcomes = db.getMarketOutcomes(marketId);
+    const poolSummary = outcomes.map(o => `${o.name}: ${o.total_bet}`).join(" / ");
 
     await client.chat.postEphemeral({
       channel: userId,
       user: userId,
-      text: `Bet placed: *${stake}* on *${side.toUpperCase()}* in *${marketId}* • YES ${db.sumSide(
-        marketId,
-        "yes"
-      )} / NO ${db.sumSide(marketId, "no")} • Your balance: ${db.pts(userId)}`,
+      text: `✅ Bet placed: *${stake} points* on *${outcome.name}* in market *${marketId}*\n` +
+        `Expected payout: *${odds?.potentialPayout || 0} points* (${odds?.profit || 0} profit)\n` +
+        `Pool: ${poolSummary}\n` +
+        `Your balance: *${db.pts(userId)} points*`,
+    });
+  });
+
+  // Handle market creation modal submission
+  app.view("create_market_modal", async ({ ack, body, view, client }) => {
+    const values = view.state.values;
+    const question = values.question_block.question_input.value || "";
+    const outcome1 = values.outcome1_block.outcome1_input.value || "";
+    const outcome2 = values.outcome2_block.outcome2_input.value || "";
+    const outcome3 = values.outcome3_block?.outcome3_input?.value || "";
+    const outcome4 = values.outcome4_block?.outcome4_input?.value || "";
+    const outcome5 = values.outcome5_block?.outcome5_input?.value || "";
+
+    // Validation
+    const errors: Record<string, string> = {};
+
+    if (!question.trim()) {
+      errors.question_block = "Question is required";
+    }
+
+    if (!outcome1.trim()) {
+      errors.outcome1_block = "At least 2 outcomes are required";
+    }
+
+    if (!outcome2.trim()) {
+      errors.outcome2_block = "At least 2 outcomes are required";
+    }
+
+    // Collect all non-empty outcomes
+    const outcomes = [outcome1, outcome2, outcome3, outcome4, outcome5]
+      .filter((o) => o && o.trim())
+      .map((o) => o.trim());
+
+    // Check for duplicates
+    const uniqueOutcomes = new Set(outcomes.map((o) => o.toLowerCase()));
+    if (uniqueOutcomes.size !== outcomes.length) {
+      errors.outcome2_block = "Outcome names must be unique";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return ack({
+        response_action: "errors",
+        errors,
+      });
+    }
+
+    await ack();
+
+    const userId = (body as { user: { id: string } }).user.id;
+    const channelId = (body as { view: { private_metadata?: string } }).view.private_metadata || userId;
+
+    // Create market with outcomes
+    const marketId = db.createMarket(question, userId, outcomes);
+    const marketOutcomes = db.getMarketOutcomes(marketId);
+
+    // Build buttons for each outcome (max 5)
+    const buttons = marketOutcomes.slice(0, 5).map((outcome) => ({
+      type: "button" as const,
+      text: { type: "plain_text" as const, text: `Bet ${outcome.name}` },
+      action_id: `bet_outcome_${outcome.id}`,
+      value: outcome.id,
+    }));
+
+    // Post message to channel
+    await client.chat.postMessage({
+      channel: channelId,
+      text: `Market ${marketId}: ${question}`,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `*${question}*` } },
+        {
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: `Market *${marketId}* • by <@${userId}> • ${marketOutcomes.length} outcomes`,
+            },
+          ],
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Outcomes:* ${marketOutcomes.map((o) => o.name).join(", ")}`,
+          },
+        },
+        {
+          type: "actions",
+          elements: buttons,
+        },
+      ],
     });
   });
 }

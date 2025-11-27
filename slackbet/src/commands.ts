@@ -3,63 +3,143 @@ import { postDailySummary } from "./analytics";
 import * as handlers from "./commandHandlers";
 
 export function registerCommands(app: App) {
-  // /mk "Will we ship by Nov 15?"
-  app.command("/mk", async ({ ack, command, client, respond }) => {
+  // /mk - Open modal to create a market with multiple outcomes
+  app.command("/mk", async ({ ack, body, client }) => {
     await ack();
-    const q = (command.text || "").trim().replace(/^"+|"+$/g, "");
 
-    const result = handlers.handleCreateMarket(q, command.user_id);
-
-    if (!result.success) {
-      return respond(result.error!);
-    }
-
-    const id = result.marketId!;
-    await client.chat.postMessage({
-      channel: command.channel_id,
-      text: `Market ${id}`,
-      blocks: [
-        { type: "section", text: { type: "mrkdwn", text: `*${q}*` } },
-        {
-          type: "context",
-          elements: [
-            {
-              type: "mrkdwn",
-              text: `Market *${id}* • by <@${command.user_id}>`,
-            },
-          ],
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: "modal",
+        callback_id: "create_market_modal",
+        title: {
+          type: "plain_text",
+          text: "Create Market",
         },
-        {
-          type: "actions",
-          elements: [
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Bet YES" },
-              action_id: "bet_yes",
-              value: id,
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Bet NO" },
-              action_id: "bet_no",
-              value: id,
-            },
-          ],
+        submit: {
+          type: "plain_text",
+          text: "Create",
         },
-      ],
+        close: {
+          type: "plain_text",
+          text: "Cancel",
+        },
+        blocks: [
+          {
+            type: "input",
+            block_id: "question_block",
+            label: {
+              type: "plain_text",
+              text: "Question",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "question_input",
+              placeholder: {
+                type: "plain_text",
+                text: "Will we ship by Nov 15?",
+              },
+            },
+          },
+          {
+            type: "input",
+            block_id: "outcome1_block",
+            label: {
+              type: "plain_text",
+              text: "Outcome 1",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "outcome1_input",
+              placeholder: {
+                type: "plain_text",
+                text: "Yes",
+              },
+            },
+          },
+          {
+            type: "input",
+            block_id: "outcome2_block",
+            label: {
+              type: "plain_text",
+              text: "Outcome 2",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "outcome2_input",
+              placeholder: {
+                type: "plain_text",
+                text: "No",
+              },
+            },
+          },
+          {
+            type: "input",
+            block_id: "outcome3_block",
+            optional: true,
+            label: {
+              type: "plain_text",
+              text: "Outcome 3 (optional)",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "outcome3_input",
+            },
+          },
+          {
+            type: "input",
+            block_id: "outcome4_block",
+            optional: true,
+            label: {
+              type: "plain_text",
+              text: "Outcome 4 (optional)",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "outcome4_input",
+            },
+          },
+          {
+            type: "input",
+            block_id: "outcome5_block",
+            optional: true,
+            label: {
+              type: "plain_text",
+              text: "Outcome 5 (optional)",
+            },
+            element: {
+              type: "plain_text_input",
+              action_id: "outcome5_input",
+            },
+          },
+        ],
+      },
     });
   });
 
-  // /bet mABC yes 50
+  // /bet mABC outcome_name 50
   app.command("/bet", async ({ ack, command, client, respond }) => {
     await ack();
-    const [id, sideRaw, amtRaw] = (command.text || "").trim().split(/\s+/);
-    const amt = parseInt(amtRaw, 10);
+    
+    const parts = (command.text || "").trim().split(/\s+/);
+    
+    // Handle both 2 and 3 arguments (outcome name might have been quoted and contain spaces)
+    // Format: /bet <market_id> <outcome_name> <amount>
+    if (parts.length < 3) {
+      return respond(
+        "Usage: `/bet <market_id> <outcome_name> <points>`\n" +
+        "Example: `/bet m123abc Yes 100` or `/bet m123abc Alice 50`"
+      );
+    }
+    
+    const marketId = parts[0];
+    const amount = parseInt(parts[parts.length - 1], 10);
+    const outcomeName = parts.slice(1, -1).join(" ");
 
     const result = handlers.handlePlaceBet(
-      id,
-      sideRaw || "",
-      amt,
+      marketId,
+      outcomeName,
+      amount,
       command.user_id
     );
 
@@ -83,23 +163,30 @@ export function registerCommands(app: App) {
       return respond(result.error!);
     }
 
-    const lines = result
-      .markets!.map((m) => `*${m.id}* — ${m.question} _(open)_`)
-      .join("\n");
-
     await client.chat.postMessage({
       channel: command.channel_id,
-      text: "Open markets",
-      blocks: [{ type: "section", text: { type: "mrkdwn", text: lines } }],
+      text: result.message!,
+      blocks: result.blocks,
     });
   });
 
-  // /resolve mABC yes
+  // /resolve mABC outcome_name
   app.command("/resolve", async ({ ack, command, client, respond }) => {
     await ack();
-    const [id, outRaw] = (command.text || "").trim().split(/\s+/);
+    
+    const parts = (command.text || "").trim().split(/\s+/);
+    
+    if (parts.length < 2) {
+      return respond(
+        "Usage: `/resolve <market_id> <outcome_name>`\n" +
+        "Example: `/resolve m123abc Yes` or `/resolve m123abc Alice`"
+      );
+    }
+    
+    const marketId = parts[0];
+    const outcomeName = parts.slice(1).join(" ");
 
-    const result = handlers.handleResolveMarket(id, outRaw || "");
+    const result = handlers.handleResolveMarket(marketId, outcomeName);
 
     if (!result.success) {
       return respond(result.error!);
@@ -108,6 +195,31 @@ export function registerCommands(app: App) {
     await client.chat.postMessage({
       channel: command.channel_id,
       text: result.message!,
+    });
+  });
+
+  // /odds - Show detailed odds for a market
+  app.command("/odds", async ({ ack, command, client, respond }) => {
+    await ack();
+    
+    const parts = (command.text || "").trim().split(/\s+/);
+    const marketId = parts[0];
+    const betAmount = parts[1] ? parseInt(parts[1], 10) : 100;
+
+    if (!marketId) {
+      return respond("Usage: `/odds <market_id> [bet_amount]`\nExample: `/odds m123abc 100`");
+    }
+
+    const result = handlers.handleGetOdds(marketId, betAmount);
+
+    if (!result.success) {
+      return respond(result.error!);
+    }
+
+    await client.chat.postMessage({
+      channel: command.channel_id,
+      text: result.message!,
+      blocks: result.blocks,
     });
   });
 
