@@ -125,3 +125,4 @@ The app uses SQLite with three tables:
 ## License
 
 MIT
+
