@@ -218,7 +218,13 @@ export function registerViews(app: App) {
     await ack();
 
     const userId = (body as { user: { id: string } }).user.id;
-    const channelId = (body as { view: { private_metadata?: string } }).view.private_metadata || userId;
+    const channelId = view.private_metadata;
+
+    // Validate we have a channel ID
+    if (!channelId) {
+      console.error("No channel ID available in modal private_metadata");
+      return;
+    }
 
     // Create market with outcomes
     const marketId = db.createMarket(question, userId, outcomes);
@@ -233,32 +239,46 @@ export function registerViews(app: App) {
     }));
 
     // Post message to channel
-    await client.chat.postMessage({
-      channel: channelId,
-      text: `Market ${marketId}: ${question}`,
-      blocks: [
-        { type: "section", text: { type: "mrkdwn", text: `*${question}*` } },
-        {
-          type: "context",
-          elements: [
-            {
-              type: "mrkdwn",
-              text: `Market *${marketId}* • by <@${userId}> • ${marketOutcomes.length} outcomes`,
-            },
-          ],
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*Outcomes:* ${marketOutcomes.map((o) => o.name).join(", ")}`,
+    try {
+      await client.chat.postMessage({
+        channel: channelId,
+        text: `Market ${marketId}: ${question}`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*${question}*` } },
+          {
+            type: "context",
+            elements: [
+              {
+                type: "mrkdwn",
+                text: `Market *${marketId}* • by <@${userId}> • ${marketOutcomes.length} outcomes`,
+              },
+            ],
           },
-        },
-        {
-          type: "actions",
-          elements: buttons,
-        },
-      ],
-    });
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*Outcomes:* ${marketOutcomes.map((o) => o.name).join(", ")}`,
+            },
+          },
+          {
+            type: "actions",
+            elements: buttons,
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("Error posting market to channel:", error);
+      // Try to notify user via ephemeral message
+      try {
+        await client.chat.postEphemeral({
+          channel: userId,
+          user: userId,
+          text: `✅ Market *${marketId}* created, but couldn't post to the channel. Use \`/markets\` to see it.`,
+        });
+      } catch (ephemeralError) {
+        console.error("Error sending ephemeral message:", ephemeralError);
+      }
+    }
   });
 }

@@ -4,7 +4,7 @@ import * as handlers from "./commandHandlers";
 
 export function registerCommands(app: App) {
   // /mk - Open modal to create a market with multiple outcomes
-  app.command("/mk", async ({ ack, body, client }) => {
+  app.command("/mk", async ({ ack, body, client, command }) => {
     await ack();
 
     await client.views.open({
@@ -12,6 +12,7 @@ export function registerCommands(app: App) {
       view: {
         type: "modal",
         callback_id: "create_market_modal",
+        private_metadata: command.channel_id, // Store channel ID for later use
         title: {
           type: "plain_text",
           text: "Create Market",
@@ -120,18 +121,18 @@ export function registerCommands(app: App) {
   // /bet mABC outcome_name 50
   app.command("/bet", async ({ ack, command, client, respond }) => {
     await ack();
-    
+
     const parts = (command.text || "").trim().split(/\s+/);
-    
+
     // Handle both 2 and 3 arguments (outcome name might have been quoted and contain spaces)
     // Format: /bet <market_id> <outcome_name> <amount>
     if (parts.length < 3) {
       return respond(
         "Usage: `/bet <market_id> <outcome_name> <points>`\n" +
-        "Example: `/bet m123abc Yes 100` or `/bet m123abc Alice 50`"
+          "Example: `/bet m123abc Yes 100` or `/bet m123abc Alice 50`"
       );
     }
-    
+
     const marketId = parts[0];
     const amount = parseInt(parts[parts.length - 1], 10);
     const outcomeName = parts.slice(1, -1).join(" ");
@@ -173,16 +174,16 @@ export function registerCommands(app: App) {
   // /resolve mABC outcome_name
   app.command("/resolve", async ({ ack, command, client, respond }) => {
     await ack();
-    
+
     const parts = (command.text || "").trim().split(/\s+/);
-    
+
     if (parts.length < 2) {
       return respond(
         "Usage: `/resolve <market_id> <outcome_name>`\n" +
-        "Example: `/resolve m123abc Yes` or `/resolve m123abc Alice`"
+          "Example: `/resolve m123abc Yes` or `/resolve m123abc Alice`"
       );
     }
-    
+
     const marketId = parts[0];
     const outcomeName = parts.slice(1).join(" ");
 
@@ -201,13 +202,15 @@ export function registerCommands(app: App) {
   // /odds - Show detailed odds for a market
   app.command("/odds", async ({ ack, command, client, respond }) => {
     await ack();
-    
+
     const parts = (command.text || "").trim().split(/\s+/);
     const marketId = parts[0];
     const betAmount = parts[1] ? parseInt(parts[1], 10) : 100;
 
     if (!marketId) {
-      return respond("Usage: `/odds <market_id> [bet_amount]`\nExample: `/odds m123abc 100`");
+      return respond(
+        "Usage: `/odds <market_id> [bet_amount]`\nExample: `/odds m123abc 100`"
+      );
     }
 
     const result = handlers.handleGetOdds(marketId, betAmount);
